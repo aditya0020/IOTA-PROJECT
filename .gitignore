@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.env
+*.sqlite3*
+node_modules/
+artifacts/
+cache/
+deployment.json
+.pio/
+firmware/esp8266/include/config.h
+.platformio/
+test-results/

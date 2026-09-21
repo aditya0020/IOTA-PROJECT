@@ -1,0 +1,9 @@
+{
+  "name": "trace-dashboard-checks",
+  "private": true,
+  "scripts": {
+    "check": "node --check dashboard/app.js",
+    "test:ui": "node scripts/smoke_dashboard.cjs"
+  },
+  "devDependencies": { "playwright": "1.55.0" }
+}

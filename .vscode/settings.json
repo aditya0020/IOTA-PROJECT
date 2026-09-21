@@ -1,0 +1,22 @@
+{
+  "liveServer.settings.ignoreFiles": [
+    ".vscode/**",
+    "**/*.scss",
+    "**/*.sass",
+    "**/*.ts",
+    "**/node_modules/**",
+    "**/.venv/**",
+    "**/venv/**",
+    "**/__pycache__/**",
+    "**/.pytest_cache/**",
+    "**/*.sqlite3*",
+    "**/*.db*",
+    "**/*.log",
+    "data/**",
+    "test-results/**",
+    ".platformio/**",
+    "firmware/**",
+    "blockchain/**",
+    ".env"
+  ]
+}

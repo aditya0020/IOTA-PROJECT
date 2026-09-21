@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#142c27">
+  <title>Trace | Supply chain monitor</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <section id="access" class="access">
+    <div class="access-story"><a class="brand" href="/" aria-label="Trace home"><span class="brand-mark">⌘</span> trace<span class="brand-dot">.</span></a><div><span class="eyebrow light">CONNECTED SUPPLY CHAIN</span><h1>Every journey.<br>Every condition.<br>A record you can trust.</h1><p>Follow your shipment from sensor to ledger, with a clear view of the moments that matter.</p></div><span class="access-foot">BLOCKCHAIN-BASED SECURE SMART SUPPLY CHAIN MONITORING</span></div>
+    <form id="login-form" class="access-form"><span class="eyebrow">OPERATIONS CONSOLE</span><h2>Welcome to Trace</h2><p>Connect to your monitoring workspace.</p><label for="api-key">Workspace access key</label><input id="api-key" type="password" autocomplete="off" placeholder="Enter your admin API key" required><button type="submit" class="primary">Open workspace <span aria-hidden="true">↗</span></button><p id="login-error" class="error" role="alert"></p><small>Sign-in survives reloads in this tab for up to 8 hours. Lock the workspace to sign out.</small></form>
+  </section>
+
+  <div id="workspace" class="app-shell" hidden>
+    <aside class="sidebar">
+      <a href="/" class="brand"><span class="brand-mark">⌘</span> trace<span class="brand-dot">.</span></a>
+      <div class="workspace-label"><span class="workspace-avatar">SC</span><div>Supply chain lab<small>Monitoring workspace</small></div></div>
+      <span class="nav-caption">WORKSPACE</span>
+      <a href="#overview" class="nav-link active"><span aria-hidden="true">▦</span> Shipment overview</a>
+      <a href="#activity" class="nav-link"><span aria-hidden="true">◷</span> Sensor history</a>
+      <a href="#ledger" class="nav-link"><span aria-hidden="true">◇</span> Blockchain ledger</a>
+      <div class="sidebar-bottom"><div class="sensor-network"><span class="dot"></span> Sensor network<small>UNO → ESP8266 → Trace</small></div><button id="logout" class="logout">Lock workspace <span aria-hidden="true">↗</span></button><small>COLLEGE IOT PROJECT · LOCAL NETWORK</small></div>
+    </aside>
+    <main id="overview">
+      <header class="topbar"><div class="breadcrumb">Workspace <span>/</span> <strong>Shipment overview</strong></div><span id="connection" class="connection">Connecting…</span><button id="mobile-logout" class="text-button">Lock</button></header>
+      <div class="page-content">
+        <div class="page-heading"><div><span class="eyebrow">VISIBILITY AT EVERY STEP</span><h1>Shipment overview</h1><p>Live conditions. Traceable events. One connected journey.</p></div><button id="open-register" class="primary"><span aria-hidden="true">＋</span> Register shipment</button></div>
+        <p id="page-error" class="error-banner" role="alert" hidden></p>
+        <div class="shipment-toolbar"><label for="package-select">Tracking shipment</label><select id="package-select" aria-label="Tracking shipment"></select><button id="refresh" class="text-button">↻ Refresh</button><span id="updated">Waiting for data</span></div>
+        <section id="empty-packages" class="empty-panel" hidden><div class="empty-icon">◇</div><h2>Your first shipment starts here</h2><p>Register a package, then connect its sensor gateway or run the simulator.</p><button id="empty-register" class="primary">Register shipment</button></section>
+        <div id="shipment-content" hidden>
+          <section class="shipment-summary"><div><div class="summary-top"><span id="package-id" class="eyebrow"></span><span id="package-status" class="badge"></span></div><h2 id="package-name"></h2><div class="route"><span id="origin"></span><span class="route-line" aria-hidden="true">──────── <span>→</span></span><span id="destination"></span></div></div><div class="summary-meta"><span>LAST SENSOR READING</span><strong id="last-reading">No readings yet</strong><small id="sample-status">Waiting for gateway</small></div></section>
+          <section class="metrics" aria-label="Current sensor readings">
+            <article class="metric"><div><span>Temperature</span><span class="metric-icon">♨</span></div><strong id="temperature">—</strong><small id="temp-range">Configured range</small></article>
+            <article class="metric"><div><span>Humidity</span><span class="metric-icon blue">◉</span></div><strong id="humidity">—</strong><small>Relative humidity</small></article>
+            <article class="metric"><div><span>Distance</span><span class="metric-icon violet">↔</span></div><strong id="distance">—</strong><small>Ultrasonic clearance</small></article>
+            <article class="metric"><div><span>Acceleration</span><span class="metric-icon amber">↗</span></div><strong id="acceleration">—</strong><small>Magnitude · includes gravity</small></article>
+            <article class="metric"><div><span>Rotation</span><span class="metric-icon blue">⟳</span></div><strong id="rotation">—</strong><small>Gyroscope magnitude</small></article>
+          </section>
+          <div class="analysis-grid">
+            <section class="panel chart-panel"><div class="panel-heading"><div><h2>Sensor trends</h2><p id="chart-caption">Recent readings from your gateway</p></div><select id="chart-metric" aria-label="Chart sensor"><option value="temperature">Temperature · °C</option><option value="humidity">Humidity · %</option><option value="distance">Distance · cm</option><option value="accel_mps2">Acceleration · m/s²</option><option value="gyro_radps">Rotation · rad/s</option></select></div><div id="chart" class="chart" role="img" aria-label="Sensor history chart"></div><div class="chart-footer"><span><i class="legend-dot"></i> <span id="chart-label">Temperature</span></span><span>Capture time · local timezone</span></div></section>
+            <section class="panel alerts-panel"><div class="panel-heading"><div><h2>Condition alerts <span id="alert-count" class="count">0</span></h2><p>Latest condition changes</p></div></div><div id="alerts" class="alert-list"></div></section>
+          </div>
+          <section id="ledger" class="panel ledger-panel"><div class="panel-heading"><div><span class="eyebrow">A VERIFIABLE JOURNEY</span><h2>Blockchain integrity</h2><p>Compare stored history with its on-chain checkpoints.</p></div><button id="verify" class="secondary">◇ Verify records</button></div><div class="verification-row"><div class="verification-symbol" aria-hidden="true">◇</div><div><span id="verification-state" class="badge neutral">NOT CHECKED</span><p id="verification-description">Run verification to check the stored history against the ledger.</p></div><div class="verification-count"><strong id="anchored-count">—</strong><span>readings anchored</span></div></div><div id="chain-events" class="chain-events"></div></section>
+          <section id="activity" class="panel history-panel"><div class="panel-heading"><div><h2>Sensor history</h2><p>Every accepted packet, with its original sequence.</p></div><div class="history-controls"><label for="history-limit">Rows</label><select id="history-limit"><option>25</option><option selected>100</option><option>500</option></select></div></div><div class="table-scroll"><table><thead><tr><th>Captured at</th><th>Sequence</th><th>Temperature</th><th>Humidity</th><th>Distance</th><th>Acceleration</th><th>Rotation</th><th>Sample status</th></tr></thead><tbody id="history"></tbody></table></div><div class="pagination"><span id="history-page"></span><div><button id="newer" class="secondary">← Newer</button><button id="older" class="secondary">Older →</button></div></div></section>
+          <footer class="page-footer"><span><span class="dot"></span> Powered by your sensors. Recorded with integrity.</span><span>TRACE / SUPPLY CHAIN MONITORING</span></footer>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="register-dialog"><form id="register-form"><div class="dialog-heading"><div><span class="eyebrow">START TRACKING</span><h2>Register a shipment</h2></div><button type="button" id="close-register" class="icon-button" aria-label="Close registration">×</button></div><p>Use the package ID sent by your sensor gateway.</p><div class="form-grid"><label>Package ID<input name="id" value="PKG001" pattern="[A-Za-z0-9_-]{1,64}" maxlength="64" required></label><label>Shipment name<input name="name" placeholder="Lab shipment" maxlength="160" required></label><label>Origin<input name="origin" placeholder="Campus lab" maxlength="160" required></label><label>Destination<input name="destination" placeholder="Warehouse" maxlength="160" required></label><label>Minimum temperature · °C<input name="min_temp" type="number" value="2" min="-40" max="125" step="0.1" required></label><label>Maximum temperature · °C<input name="max_temp" type="number" value="30" min="-40" max="125" step="0.1" required></label><label>Acceleration deviation · m/s²<input name="accel_threshold" type="number" value="8" min="0.1" max="280" step="0.1" required></label><label>Rotation threshold · rad/s<input name="gyro_threshold" type="number" value="3.14" min="0.01" max="61" step="0.01" required></label></div><p id="register-error" class="error" role="alert"></p><button type="submit" class="primary">Register shipment</button></form></dialog>
+</body>
+</html>
