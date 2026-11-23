@@ -36,4 +36,8 @@ def detect(data, package):
 def reading_json(row):
     if row is None:
         return None
-    return json.loads(row['payload']) | {k: row[k] for k in ('id', 'received_at', 'status', 'hash', 'prev_hash')} | {'reasons': json.loads(row['reasons'])}
+    from .reading_proofs import explorer_url
+    return json.loads(row['payload']) | {k: row[k] for k in ('id', 'received_at', 'status', 'hash', 'prev_hash',
+        'blockchain_status', 'blockchain_tx_hash', 'blockchain_block_number', 'blockchain_data_hash',
+        'blockchain_anchored_at', 'blockchain_error')} | {'reasons': json.loads(row['reasons']),
+        'blockchain_explorer_url': explorer_url(row['blockchain_tx_hash'])}

@@ -1,5 +1,9 @@
 # Blockchain-Based Secure Smart Supply Chain Monitoring System
 
+For individual reading proofs, role-separated wallets, local Hardhat/Sepolia deployment,
+durable retries and the safe tamper demo, see [BLOCKCHAIN_SETUP.md](BLOCKCHAIN_SETUP.md).
+Local writer account is index 1.
+
 College IoT project: DHT11 + HC-SR04 + MPU6050 → Arduino UNO → NodeMCU ESP8266 → HTTP JSON → Flask → SQLite → blockchain → dashboard.
 
 ## Hardware preserved
@@ -26,7 +30,7 @@ Copy-Item .env.example .env
 .\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(32)); print(secrets.token_urlsafe(32))"
 ```
 
-Put the two generated tokens in `.env` as `DEVICE_API_KEY` and `ADMIN_API_KEY`. Keep the tokens different. Initially leave `BLOCKCHAIN_ENABLED=false`. SQLite is created automatically at `data/supply_chain.sqlite3`; changing `DATABASE_PATH` selects a different database. `.env`, firmware credentials and database files are ignored by Git.
+Put the two generated tokens in `.env` as `DEVICE_API_KEY` and `ADMIN_API_KEY`. Keep the tokens different. Initially leave `BLOCKCHAIN_ENABLED=false` unless you have already started a local or Sepolia chain. SQLite is created automatically at `data/supply_chain.sqlite3`; changing `DATABASE_PATH` selects a different database. `.env`, firmware credentials and database files are ignored by Git.
 
 Start the backend:
 
@@ -116,7 +120,7 @@ Hardware acceptance: confirm `ACK|seq` on the UNO, `Stored seq=... HTTP=201` on 
 
 Plain HTTP and shared API tokens are intended for a trusted college LAN demo. Public deployment requires TLS, per-device identity, user authentication and operational hardening; never expose the development blockchain RPC to the internet.
 
-## Stage 2: local blockchain
+## Stage 2: blockchain
 
 Install Node.js 22 (tested with 22.14) and npm. This project pins Hardhat 2.26.3 and Solidity 0.8.28 for the installed toolchain; use `npm ci` to reproduce the checked dependency graph. The compiler comes from the pinned `solc` package. The official Hardhat documentation now recommends Hardhat 3 for new production projects; this college demo retains the tested Hardhat 2 toolchain.
 
@@ -140,9 +144,13 @@ Deployment writes `blockchain/deployment.json` with the address, ABI, chain ID a
 .\.venv\Scripts\python.exe -m flask --app backend.app:create_app sync-chain --watch
 ```
 
-Run **one worker per signing account** to avoid nonce races. Without `--watch` it processes up to 100 queued events once. A failed event is marked FAILED and retried on the next pass. Registration always precedes later events. Blockchain failure never rolls back accepted sensor data. For local Hardhat, the default account index is 0; no development private key is embedded in source. For a signed account, use `BLOCKCHAIN_PRIVATE_KEY` in `.env`; that account must be the contract owner and have gas funds. Unlocked account mode is restricted to chain 31337.
+Run **one worker per signing account** to avoid nonce races. Without `--watch` it processes up to 100 queued events once. A failed event is marked FAILED and retried on the next pass. Registration always precedes later events. Blockchain failure never rolls back accepted sensor data. For local Hardhat, no development private key is embedded in source. For a signed account, use `BLOCKCHAIN_PRIVATE_KEY`; that account must match the deployed writer and have gas funds. Unlocked account mode is restricted to chain 31337.
 
-Only the contract owner can register or anchor records. On-chain data contains a hashed package identifier, event type, SHA-256 payload hash, event key and block time. Full registration metadata, readings, alerts and checkpoint payloads remain in SQLite. Events are registration, condition changes (including recovery), and every `CHECKPOINT_INTERVAL` readings per package (default 10). Constant abnormal readings do not spam the chain. A reading hashes canonical JSON prefixed by the previous reading hash; checkpoints anchor the resulting chain head and reading count.
+Only WRITER_ROLE can anchor records. The administrator/deployer and writer are
+separate. On-chain individual proof data contains hashed package ID, hashed reading
+ID, SHA-256 payload hash, timestamp and alert flag. Full registration metadata,
+readings, alerts and checkpoint payloads remain in SQLite. Legacy checkpoint events
+are still submitted and displayed as secondary evidence.
 
 The worker writes transaction hash and block number after successful receipts. The contract deduplicates stable event keys. If a worker crashes after the chain accepts a transaction, it retrieves the original event receipt on retry rather than creating duplicate evidence. Logs report event IDs and error types without printing keys or raw provider responses.
 
@@ -153,7 +161,7 @@ Additional authenticated APIs:
 | GET | `/api/packages/<id>/blockchain` | PENDING / FAILED / CONFIRMED events and receipts |
 | GET | `/api/packages/<id>/verify` | Recompute local hashes and query the actual chain |
 
-Verification reports OFFLINE (disabled), UNAVAILABLE (RPC/configuration problem), PENDING (no reading checkpoint yet), PARTIAL (only a prefix anchored), VERIFIED (all current readings covered) or INVALID (mismatch). An unanchored tail is explicitly counted. Verification also compares on-chain event keys with local event history to detect removed checkpoint evidence. It attests stored data against this configured ledger; it cannot prove the original sensor measurement was truthful or protect against an attacker replacing the database **and** the trusted blockchain/configuration. Local Hardhat state is ephemeral and not a production decentralized trust network.
+Package verification reports OFFLINE, UNAVAILABLE, PENDING, PARTIAL, VERIFIED or INVALID based on the retained readings' individual proofs. Legacy checkpoints report their own state, coverage and integrity separately. Verification attests stored data against the configured ledger; it cannot prove the original sensor measurement was truthful or protect against an attacker replacing both the database and trusted blockchain/configuration. Local Hardhat state is ephemeral and not a production decentralized trust network.
 
 Run the real contract/backend integration test with the node running and contract deployed:
 
@@ -161,13 +169,15 @@ Run the real contract/backend integration test with the node running and contrac
 .\.venv\Scripts\python.exe -m scripts.smoke_blockchain
 ```
 
-This creates a uniquely named test shipment on the local chain, uses a temporary database, verifies a checkpoint, exercises crash recovery, and detects modified data. Unit tests also cover outages, pending tails, removed checkpoints and registration metadata changes.
+This creates a uniquely named test shipment on the local chain, uses a temporary database, verifies individual proofs and checkpoints, exercises crash recovery, and detects modified data. Unit tests also cover outages, pending tails, removed checkpoints and registration metadata changes.
 
 If you restart/reset Hardhat, its chain history is lost. Existing database CONFIRMED rows will no longer verify. For a fresh demo, redeploy and point `DATABASE_PATH` to a **new** database before registration; retain the old database if you need its records. Do not present old transaction hashes as proof on the new chain.
 
 ## Stage 3: dashboard
 
 ### Open with VS Code Live Server
+
+Live Server reloads frontend edits immediately. Its file watcher ignores database files, logs, build outputs and other runtime artifacts, so incoming sensor data does not reload the dashboard. The dashboard checks the compact live endpoint every second and refreshes history, alerts and blockchain details only after a new reading arrives. Restart Live Server once after pulling this change. Opening `http://localhost:5000` directly is also supported.
 
 Start the Flask backend first (keep this terminal running):
 
@@ -183,7 +193,7 @@ Local Live Server origins on ports 5500 and 5501 are allowed by default. For ano
 
 Open **http://localhost:5000** while Flask/Waitress is running. Enter the `ADMIN_API_KEY` from your `.env` in the workspace access screen. The browser stores the key and backend URL in this tab's sessionStorage so sign-in survives reloads for up to 8 hours. Restored credentials are checked with Flask before opening the workspace. Lock workspace clears the saved session; credentials are not written to localStorage. This is a local demo access gate, not a multi-user identity system.
 
-The dashboard includes shipment registration with configurable thresholds, current sensor magnitudes, package and sample status, temperature/humidity/distance/motion charts, condition alerts, paginated sensor history, transaction hashes and block numbers. It polls every three seconds; readings more than 15 seconds old are visibly marked stale. Click **Verify records** to check database history against the configured contract. Verification shows its coverage and check time, and resets when a new reading arrives. Data is never seeded into the dashboard automatically.
+The dashboard includes shipment registration with configurable thresholds, current sensor readings, package and sample status, temperature/humidity/distance/motion charts, condition alerts, paginated sensor history, transaction hashes and block numbers. Displayed acceleration is zeroed against the first live reading for the selected shipment, so a stationary MPU6050 shows movement near 0 even though the raw stored magnitude includes gravity. It polls the live endpoint every second; readings more than 15 seconds old are visibly marked stale. Click **Verify records** to check database history against the configured contract. Verification shows its coverage and check time, and resets when a new reading arrives. Data is never seeded into the dashboard automatically.
 
 All frontend assets are local HTML/CSS/JavaScript, served by Flask. No frontend build, CDN, npm runtime dependency or internet connection is required to use the dashboard. Charts are SVG and use the actual capture timestamps, with a table offering the underlying values. Select a sensor to change the chart; it charts the current history page. A package selector loads up to 500 packages; the intended scope is a college demonstration.
 
@@ -234,4 +244,4 @@ Troubleshooting:
 
 ### Unexpected return to the login page in Live Server
 
-Restart Live Server after changing workspace settings. `.vscode/settings.json` excludes database files, SQLite WAL/SHM files, logs, build outputs and test artifacts from its file watcher. Backend writes should not reload the page. Frontend edits still reload normally, and the tab session restores sign-in. Backend connection failures show an error instead of clearing an active workspace.
+Restart Live Server once after changing workspace settings. `.vscode/settings.json` excludes database files, SQLite WAL/SHM files, logs, build outputs and test artifacts from its file watcher. Backend writes should not reload the page. Frontend edits reload normally, and the tab session restores sign-in. Backend connection failures show an error instead of clearing an active workspace.

@@ -2,6 +2,7 @@
 import json
 import logging
 import os
+from collections import Counter
 from pathlib import Path
 from web3 import Web3
 from .service import canonical, digest, detect, ZERO_HASH
@@ -17,6 +18,10 @@ class Chain:
         if not deployment_path.is_absolute():
             deployment_path = ROOT / deployment_path
         deployment = json.loads(deployment_path.read_text())
+        address = os.getenv('BLOCKCHAIN_CONTRACT_ADDRESS') or deployment['address']
+        if not Web3.is_address(address) or Web3.to_checksum_address(address) != Web3.to_checksum_address(deployment['address']):
+            raise ValueError('Contract address must match deployment manifest')
+        deployment['address'] = Web3.to_checksum_address(address)
         chain_id = int(os.getenv('BLOCKCHAIN_CHAIN_ID', '31337'))
         if self.web3.eth.chain_id != chain_id or deployment['chain_id'] != chain_id:
             raise RuntimeError('Configured chain ID does not match RPC/deployment')
@@ -51,7 +56,7 @@ class Chain:
             else:
                 if self.web3.eth.chain_id != 31337:
                     raise RuntimeError('Unlocked account mode is restricted to local chain 31337')
-                account = self.web3.eth.accounts[int(os.getenv('BLOCKCHAIN_ACCOUNT_INDEX', '0'))]
+                account = self.web3.eth.accounts[int(os.getenv('BLOCKCHAIN_ACCOUNT_INDEX', '1'))]
                 tx_hash = fn.transact({'from': account})
             receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=30)
             if receipt.status != 1:
@@ -89,9 +94,12 @@ def sync_outbox(db, chain=None, limit=100):
     pending = db.execute("SELECT count(*) FROM outbox WHERE state != 'CONFIRMED'").fetchone()[0]
     return {'confirmed': processed, 'pending': pending}
 
-def verify_package(db, package_id, enabled, chain=None):
+def verify_legacy_package(db, package_id, enabled, chain=None):
     package = dict(db.execute('SELECT * FROM packages WHERE id=?', (package_id,)).fetchone())
     rows = db.execute('SELECT * FROM readings WHERE package_id=? ORDER BY id', (package_id,)).fetchall()
+    # Individual proof coverage is persisted on readings, independent of legacy events.
+    proof_counts = Counter(row['blockchain_status'] for row in rows)
+    individual_confirmed = proof_counts['CONFIRMED']
     head = ZERO_HASH
     heads = {}
     local_valid = True
@@ -148,6 +156,53 @@ def verify_package(db, package_id, enabled, chain=None):
             chain_valid = None
             error = type(exc).__name__
     state = 'INVALID' if not local_valid or chain_valid is False else 'UNAVAILABLE' if error else 'OFFLINE' if not enabled else 'VERIFIED' if rows and anchored_count == len(rows) else 'PARTIAL' if anchored_count else 'PENDING'
+    legacy_state = state
     return {'state': state, 'local_integrity': bool(local_valid), 'chain_integrity': chain_valid,
             'reading_count': len(rows), 'anchored_readings': anchored_count, 'unanchored_readings': len(rows) - anchored_count,
+            'legacy_checkpoint_state': legacy_state, 'legacy_checkpoint_anchored_readings': anchored_count,
+            'individual_proofs_confirmed': individual_confirmed,
+            'individual_proofs_pending': proof_counts['PENDING'] + proof_counts['SUBMITTED'],
+            'individual_proofs_failed': proof_counts['FAILED'],
+            'individual_proofs_disabled': proof_counts['DISABLED'],
             'confirmed_events': confirmed_events, 'head_hash': head, 'error': error}
+
+
+def verify_package(db, package_id, enabled, chain=None, reading_chain=None):
+    """Verify retained readings independently; legacy history is informational only."""
+    from .reading_proofs import ReadingChain, verify_reading
+    # Use a consistent SQLite snapshot even while the hardware/worker keeps writing.
+    db.execute('SAVEPOINT package_verification')
+    try:
+        report = verify_legacy_package(db, package_id, enabled, chain)
+        rows = db.execute('SELECT * FROM readings WHERE package_id=? ORDER BY id', (package_id,)).fetchall()
+    finally:
+        db.execute('RELEASE SAVEPOINT package_verification')
+    counts = Counter()
+    error = None
+    if enabled and rows:
+        try:
+            reading_chain = reading_chain or ReadingChain()
+            for row in rows:
+                result = verify_reading(row, True, reading_chain)
+                counts[result['state']] += 1
+                if result['state'] == 'UNAVAILABLE':
+                    error = result['error']
+                    break # Avoid repeated RPC timeouts during an outage.
+        except Exception:
+            error = 'Individual proof verification unavailable. Check network and deployment configuration.'
+    verified = counts['VERIFIED']
+    state = ('OFFLINE' if not enabled else 'INVALID' if counts['TAMPERED'] else
+             'UNAVAILABLE' if error else 'VERIFIED' if rows and verified == len(rows) else
+             'PARTIAL' if verified or report['individual_proofs_confirmed'] else 'PENDING')
+    return report | {
+        'state': state, 'error': error,
+        'individual_proofs_verified': verified,
+        'individual_proofs_tampered': counts['TAMPERED'],
+        'individual_proofs_missing': counts['MISSING_PROOF'] + counts['PENDING'] + counts['DISABLED'],
+        'individual_proofs_checked': sum(counts.values()) - counts['UNAVAILABLE'],
+        'individual_proofs_integrity': False if counts['TAMPERED'] else True if state == 'VERIFIED' else None,
+        'legacy_checkpoint_coverage': report['legacy_checkpoint_anchored_readings'],
+        'legacy_checkpoint_integrity': False if report['legacy_checkpoint_state'] == 'INVALID' else
+            True if report['legacy_checkpoint_state'] == 'VERIFIED' else None,
+        'legacy_checkpoint_error': report['error'],
+    }

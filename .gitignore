@@ -2,6 +2,12 @@
 __pycache__/
 .pytest_cache/
 .env
+.env.*
+!.env.example
+archives/
+.iota-run/
+blockchain/deployment.*.json
+*.chain.lock
 *.sqlite3*
 node_modules/
 artifacts/

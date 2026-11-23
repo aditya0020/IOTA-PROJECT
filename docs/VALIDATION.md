@@ -2,6 +2,28 @@
 
 Verified incrementally in the provided Windows workspace on 22 September 2026.
 
+## Individual reading proof integration
+
+- Python: 53 tests passed, including additive migration, API protection, sampling,
+  canonical hashing, disabled mode, outages, timeouts, reverted transactions and tampering.
+- Solidity: 11 tests passed; OpenZeppelin roles, exact events, immutable reading
+  proofs and the original checkpoint contract tests. Seven Solidity files compiled.
+- Live Hardhat deployment: SupplyChainAudit deployed with separate administrator
+  and writer. Real Web3 signing and saved-transaction crash recovery passed using
+  an ephemeral wallet; its writer role was revoked afterward.
+- Safe local demo: VERIFIED → TAMPERED → VERIFIED; temporary database restored
+  and removed. Existing application data was not changed.
+- JavaScript syntax and existing Edge/Playwright dashboard tests passed. Reading
+  proof controls additionally cover disabled, verified and tampered render states.
+- `pip check`: no broken requirements. `git diff --check`: passed.
+- npm audit: 20 development-toolchain findings (10 low, 3 moderate, 7 high);
+  several remediations require a Hardhat major migration. See BLOCKCHAIN_SETUP.md.
+- Sepolia configuration is implemented but deployment was not attempted: user RPC,
+  separate funded testnet wallets and secrets are required. Physical hardware was
+  not flashed; its source and HTTP protocol are unchanged.
+
+The table below records earlier project validation, before this integration.
+
 | Stage | Check | Result |
 |---|---|---|
 | Pipeline, before blockchain/dashboard implementation | Backend pytest suite | 31 passed |

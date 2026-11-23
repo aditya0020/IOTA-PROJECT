@@ -75,13 +75,60 @@ async function main() {
     await page.locator('#refresh').click();
     await page.locator('#package-status').filter({hasText:'WARNING'}).waitFor();
     assert.match(await page.locator('#temperature').innerText(),/38.0/);
+    assert.match(await page.locator('#acceleration').innerText(),/0.0/);
     assert.equal(await page.locator('#history tr').count(),28);
+    const proof = page.locator('#history tr').first().locator('td').last();
+    await proof.locator('summary').click();
+    await proof.getByRole('button', {name:'Verify reading'}).click();
+    await proof.getByRole('status').filter({hasText:'DISABLED'}).waitFor();
+    for (const state of ['VERIFIED', 'TAMPERED']) {
+      await page.route('**/api/readings/*/verify', route => route.fulfill({status:200,
+        contentType:'application/json', body:JSON.stringify({state, verified:state==='VERIFIED'})}));
+      await proof.getByRole('button', {name:'Verify reading'}).click();
+      await proof.getByRole('status').filter({hasText:state}).waitFor();
+      await page.unroute('**/api/readings/*/verify');
+    }
+    await proof.locator('summary').click();
     assert.equal(await page.locator('#chart svg').count(),1);
     await page.locator('#chart-metric').selectOption('gyro_radps');
     assert.match(await page.locator('#chart-label').innerText(),/Rotation/);
     await page.locator('#chart-metric').selectOption('temperature');
     await page.locator('#verify').click();
     await page.locator('#verification-state').filter({hasText:'OFFLINE'}).waitFor();
+    // Regression: individual proof coverage is independent of legacy checkpoints.
+    await page.route('**/api/packages/PKG001/verify', route => route.fulfill({status:200,
+      contentType:'application/json', body:JSON.stringify({state:'PARTIAL', reading_count:788,
+        individual_proofs_confirmed:4, individual_proofs_disabled:784,
+        individual_proofs_pending:0, individual_proofs_failed:0,
+        anchored_readings:0, legacy_checkpoint_anchored_readings:0})}));
+    await page.locator('#verify').click();
+    await page.locator('#verification-state').filter({hasText:'PARTIAL'}).waitFor();
+    assert.equal(await page.locator('#anchored-count').innerText(), '4 / 788');
+    assert.match(await page.locator('.verification-count').innerText(), /individual proofs anchored/);
+    const proofSummary = await page.locator('#verification-description').innerText();
+    assert.match(proofSummary, /4 readings have individual blockchain proofs/);
+    assert.match(proofSummary, /784 readings have individual proof anchoring disabled/);
+    assert.match(proofSummary, /Legacy checkpoints cover 0 \/ 788/);
+    assert.doesNotMatch(proofSummary, /No sensor history is anchored yet/);
+    await page.unroute('**/api/packages/PKG001/verify');
+    for (const state of ['VERIFIED', 'INVALID']) {
+      await page.route('**/api/packages/PKG001/verify', route => route.fulfill({status:200,
+        contentType:'application/json', body:JSON.stringify({state, reading_count:245,
+          individual_proofs_confirmed:245, individual_proofs_verified:state==='VERIFIED'?245:244,
+          legacy_checkpoint_state:'INVALID', legacy_checkpoint_anchored_readings:0})}));
+      await page.locator('#verify').click();
+      await page.locator('#verification-state').filter({hasText:state}).waitFor();
+      assert.equal(await page.locator('#anchored-count').innerText(), '245 / 245');
+      assert.match(await page.locator('#verification-description').innerText(), /checkpoint chain does not match the retained dataset/);
+      if (state === 'VERIFIED') {
+        assert.match(await page.locator('.verification-count').innerText(), /individual proofs anchored and verified/);
+        assert.equal(await page.locator('#verification-state').getAttribute('class'), 'badge verified');
+      } else {
+        assert.equal(await page.locator('#verification-state').getAttribute('class'), 'badge invalid');
+        assert.match(await page.locator('#verification-description').innerText(), /does not match its on-chain proof/);
+      }
+      await page.unroute('**/api/packages/PKG001/verify');
+    }
     await page.locator('#history-limit').selectOption('25');
     await page.waitForFunction(()=>document.querySelectorAll('#history tr').length===25);
     await page.locator('#older').click();

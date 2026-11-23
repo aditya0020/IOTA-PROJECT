@@ -1,18 +1,20 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
+import "@openzeppelin/contracts/access/AccessControl.sol";
 
 /// @notice Permissioned classroom shipment ledger. Frequent telemetry stays off-chain.
-contract SupplyChain {
+contract SupplyChain is AccessControl {
+    bytes32 public constant WRITER_ROLE = keccak256("WRITER_ROLE");
     address public immutable owner;
     struct Record { bytes32 packageKey; bytes32 dataHash; uint8 kind; uint64 recordedAt; }
     mapping(bytes32 => bytes32) public registrations;
     mapping(bytes32 => Record) public records;
     event Anchored(bytes32 indexed eventKey, bytes32 indexed packageKey, uint8 kind, bytes32 dataHash);
 
-    constructor() { owner = msg.sender; }
+    constructor() { owner = msg.sender; _grantRole(DEFAULT_ADMIN_ROLE, msg.sender); _grantRole(WRITER_ROLE, msg.sender); }
 
     modifier onlyOwner() {
-        require(msg.sender == owner, "Unauthorized writer");
+        require(hasRole(WRITER_ROLE, msg.sender), "Unauthorized writer");
         _;
     }
 

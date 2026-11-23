@@ -22,6 +22,8 @@ def create_app(test_config=None):
                       DEVICE_API_KEY=os.getenv('DEVICE_API_KEY', ''), ADMIN_API_KEY=os.getenv('ADMIN_API_KEY', ''),
                       CHECKPOINT_INTERVAL=int(os.getenv('CHECKPOINT_INTERVAL', '10')), MAX_CONTENT_LENGTH=8192,
                       BLOCKCHAIN_ENABLED=os.getenv('BLOCKCHAIN_ENABLED', 'false').lower() == 'true')
+    app.config.update(BLOCKCHAIN_ANCHOR_EVERY_N_READINGS=int(os.getenv('BLOCKCHAIN_ANCHOR_EVERY_N_READINGS', '1')),
+                      BLOCKCHAIN_ANCHOR_ALERTS_IMMEDIATELY=os.getenv('BLOCKCHAIN_ANCHOR_ALERTS_IMMEDIATELY', 'true').lower() == 'true')
     if test_config:
         app.config.update(test_config)
     app.config.setdefault('CORS_ALLOWED_ORIGINS', os.getenv('CORS_ALLOWED_ORIGINS',
@@ -40,6 +42,8 @@ def create_app(test_config=None):
         return response
     if app.config['CHECKPOINT_INTERVAL'] < 1:
         raise ValueError('CHECKPOINT_INTERVAL must be positive')
+    if app.config['BLOCKCHAIN_ANCHOR_EVERY_N_READINGS'] < 1:
+        raise ValueError('BLOCKCHAIN_ANCHOR_EVERY_N_READINGS must be positive')
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
     init_db(app)
 
@@ -149,6 +153,11 @@ def create_app(test_config=None):
             if reasons and changed:
                 db.execute('INSERT INTO alerts(package_id,reading_id,timestamp,status,reasons) VALUES(?,?,?,?,?)', (data['package_id'], row_id, data['timestamp'], status, canonical(reasons)))
             count = db.execute('SELECT count(*) FROM readings WHERE package_id=?', (data['package_id'],)).fetchone()[0]
+            from .reading_proofs import sensor_hash
+            selected = count % app.config['BLOCKCHAIN_ANCHOR_EVERY_N_READINGS'] == 0 or (reasons and app.config['BLOCKCHAIN_ANCHOR_ALERTS_IMMEDIATELY'])
+            proof_status = 'PENDING' if app.config['BLOCKCHAIN_ENABLED'] and selected else 'DISABLED'
+            db.execute('UPDATE readings SET blockchain_status=?,blockchain_data_hash=? WHERE id=?',
+                       (proof_status, sensor_hash(data), row_id))
             checkpoint = {'package_id': data['package_id'], 'count': count, 'head_hash': hashed, 'reading_id': data['reading_id'], 'timestamp': data['timestamp']}
             if changed and (reasons or (prev and json.loads(prev['reasons']))):
                 enqueue(db, data['package_id'], 'CONDITION', checkpoint | {'status': status, 'reasons': reasons})
@@ -197,13 +206,48 @@ def create_app(test_config=None):
     @click.option('--watch', is_flag=True, help='Poll the durable outbox every 3 seconds.')
     def sync_chain(watch):
         from .blockchain import sync_outbox
+        from .reading_proofs import sync_readings, worker_lock
         import time
         if not app.config['BLOCKCHAIN_ENABLED']:
             raise click.ClickException('Set BLOCKCHAIN_ENABLED=true first')
         while True:
-            click.echo(sync_outbox(get_db()))
+            try:
+                with worker_lock(app.config['DATABASE_PATH']):
+                    click.echo({'readings': sync_readings(get_db())})
+                    # Never race a pending reading transaction for the wallet nonce.
+                    if not get_db().execute("SELECT 1 FROM readings WHERE blockchain_status='SUBMITTED' LIMIT 1").fetchone():
+                        click.echo({'checkpoints': sync_outbox(get_db())})
+            except OSError:
+                raise click.ClickException('Another chain worker is running for this database')
             if not watch:
                 break
             time.sleep(3)
+
+    def find_reading(row_id):
+        row = get_db().execute('SELECT * FROM readings WHERE id=?', (row_id,)).fetchone()
+        if row is None:
+            from werkzeug.exceptions import NotFound
+            raise NotFound('Reading not found')
+        return row
+
+    @app.get('/api/readings/<int:row_id>/verify')
+    @auth('ADMIN')
+    def verify_sensor(row_id):
+        from .reading_proofs import verify_reading
+        result = verify_reading(find_reading(row_id), app.config['BLOCKCHAIN_ENABLED'])
+        return jsonify(result), 503 if result['state'] == 'UNAVAILABLE' else 200
+
+    @app.post('/api/readings/<int:row_id>/retry-blockchain')
+    @auth('ADMIN')
+    def retry_sensor(row_id):
+        row = find_reading(row_id)
+        if not app.config['BLOCKCHAIN_ENABLED']:
+            return jsonify(error='Blockchain is disabled'), 409
+        if row['blockchain_status'] == 'DISABLED':
+            return jsonify(error='Reading was not selected for anchoring'), 409
+        if row['blockchain_status'] == 'FAILED':
+            with get_db():
+                get_db().execute("UPDATE readings SET blockchain_status='PENDING',blockchain_error=NULL WHERE id=? AND blockchain_status='FAILED'", (row_id,))
+        return jsonify(reading=reading_json(find_reading(row_id))), 202
 
     return app

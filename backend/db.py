@@ -44,3 +44,14 @@ def init_db(app):
     app.teardown_appcontext(lambda error: g.pop('db', None).close() if 'db' in g else None)
     with app.app_context():
         get_db().executescript(SCHEMA)
+        # Additive migration: historical readings remain disabled until explicitly selected.
+        db = get_db()
+        columns = {row['name'] for row in db.execute('PRAGMA table_info(readings)')}
+        additions = {'blockchain_status': "TEXT NOT NULL DEFAULT 'DISABLED'",
+                     'blockchain_tx_hash': 'TEXT', 'blockchain_block_number': 'INTEGER',
+                     'blockchain_data_hash': 'TEXT', 'blockchain_anchored_at': 'TEXT',
+                     'blockchain_error': 'TEXT', 'blockchain_raw_tx': 'TEXT'}
+        with db:
+            for name, declaration in additions.items():
+                if name not in columns:
+                    db.execute(f'ALTER TABLE readings ADD COLUMN {name} {declaration}')
